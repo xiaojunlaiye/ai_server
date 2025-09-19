@@ -62,9 +62,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- Routers ---
+from app.routers.translation import router as translation_router  # noqa: E402
+from app.routers.xhs_hotpost import router as xhs_router  # noqa: E402
+from app.routers.image_gen import router as image_router  # noqa: E402
+
+app.include_router(translation_router)
+app.include_router(xhs_router)
+app.include_router(image_router)
+
+
 @app.get("/healthz")
 async def healthz() -> Dict[str, str]:
     return {"status": "ok"}
+
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest) -> ChatResponse:
@@ -79,30 +90,60 @@ async def chat(req: ChatRequest) -> ChatResponse:
 
     client = OpenAI(**client_kwargs)
 
+    # 如果可用优先使用 Responses API，否则回退到 Chat Completions
+    use_responses_api = hasattr(client, "responses") and hasattr(client.responses, "create")
+
     try:
-        response = client.chat.completions.create(
-            model=req.model,
-            messages=[m.model_dump() for m in req.messages],
-            temperature=req.temperature,
-            max_tokens=req.max_tokens,
-            **(req.extra or {}),
-        )
+        if use_responses_api:
+            # 将 messages 简单串联为一个输入，适配 Responses API
+            prompt_segments: List[str] = [f"{m.role}: {m.content}" for m in req.messages]
+            prompt: str = "\n".join(prompt_segments) if prompt_segments else "Hello"
+
+            response = client.responses.create(
+                model=req.model,
+                input=prompt,
+                temperature=req.temperature,
+                max_output_tokens=req.max_tokens,
+                **(req.extra or {}),
+            )
+            text_output: str = getattr(response, "output_text", None) or ""
+
+            choice = ChatResponseChoice(
+                index=0,
+                message=ChatMessage(role="assistant", content=text_output),
+                finish_reason=None,
+            )
+
+            return ChatResponse(
+                id=getattr(response, "id", None),
+                choices=[choice],
+                model=getattr(response, "model", None),
+            )
+        else:
+            # 回退：使用 Chat Completions 兼容路径
+            response = client.chat.completions.create(
+                model=req.model,
+                messages=[m.model_dump() for m in req.messages],
+                temperature=req.temperature,
+                max_tokens=req.max_tokens,
+                **(req.extra or {}),
+            )
+
+            choices: List[ChatResponseChoice] = []
+            for idx, choice in enumerate(response.choices):
+                cmsg = choice.message
+                choices.append(
+                    ChatResponseChoice(
+                        index=idx,
+                        message=ChatMessage(role=cmsg.role, content=cmsg.content or ""),
+                        finish_reason=getattr(choice, "finish_reason", None),
+                    )
+                )
+
+            return ChatResponse(
+                id=getattr(response, "id", None),
+                choices=choices,
+                model=getattr(response, "model", None),
+            )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Upstream error: {e}")
-
-    choices: List[ChatResponseChoice] = []
-    for idx, choice in enumerate(response.choices):
-        cmsg = choice.message
-        choices.append(
-            ChatResponseChoice(
-                index=idx,
-                message=ChatMessage(role=cmsg.role, content=cmsg.content or ""),
-                finish_reason=getattr(choice, "finish_reason", None),
-            )
-        )
-
-    return ChatResponse(
-        id=getattr(response, "id", None),
-        choices=choices,
-        model=getattr(response, "model", None),
-    )

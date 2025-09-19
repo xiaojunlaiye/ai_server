@@ -1,7 +1,7 @@
 # LLM_api Demo
 
-后端：FastAPI（Python）代理到 OpenAI Chat Completions。
-客户端：Flutter 示例，调用后端的 /chat。
+后端：FastAPI（Python）代理到 OpenAI。
+客户端：Flutter 示例。
 
 ## 一、后端（FastAPI）
 
@@ -25,16 +25,17 @@ cp .env.example .env
 - OPENAI_API_KEY：你的 OpenAI API Key
 
 可选：
-- OPENAI_BASE_URL：如果使用兼容网关/代理可覆盖基础地址
-- ALLOWED_ORIGINS：CORS 允许的来源（逗号分隔），默认放开常见本地地址
+- OPENAI_BASE_URL：兼容网关/代理的基础地址
+- ALLOWED_ORIGINS：CORS 允许来源（逗号分隔）
 
 ### 4) 运行服务
 ```bash
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
+
 打开接口文档：http://localhost:8000/docs
 
-### 5) 示例请求
+### 5) 聊天（兼容 Responses/Chat Completions）示例
 ```bash
 curl -X POST http://localhost:8000/chat \
   -H 'Content-Type: application/json' \
@@ -46,24 +47,64 @@ curl -X POST http://localhost:8000/chat \
   }'
 ```
 
-## 二、Flutter 客户端
+## 二、翻译服务（Translation）
 
-我们在 `flutter_client/lib/main.dart` 提供了一个最小示例，默认请求 `http://localhost:8000/chat`。
+- 路径：`POST /translation/translate`
+- 请求体：
+  - `text`：待翻译文本（必填）
+  - `target_lang`：目标语言（必填，如 `English` / `中文` / `Japanese`）
+  - `source_lang`：源语言（可选，留空则自动检测）
+  - `model`、`temperature`、`max_tokens`、`extra`：同 OpenAI 参数
 
-快速开始：
-1. 创建项目（如无）：`flutter create flutter_client`
-2. 用本仓库的 `flutter_client/lib/main.dart` 覆盖生成的同名文件
-3. 在 `flutter_client/pubspec.yaml` 添加依赖：
-   ```yaml
-   dependencies:
-     flutter:
-       sdk: flutter
-     http: ^1.2.2
-   ```
-4. 运行：`cd flutter_client && flutter run`
+示例：
+```bash
+curl -X POST http://localhost:8000/translation/translate \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "text": "今天天气不错，我们去公园散步吧。",
+    "target_lang": "English"
+  }'
+```
 
-如果后端运行在设备外部或不同端口，请在 `main.dart` 中修改 `backendBaseUrl`。
+## 三、小红书爆款服务（XHS Hotpost）
 
-## 说明
-- 示例为非流式返回，后续可扩展为流式（SSE）。
-- 请求/响应格式尽量保持 OpenAI Chat Completions 的习惯用法。
+- 路径：`POST /xhs/hotpost`
+- 请求体：
+  - `topic`（必填）
+  - `audience`、`style`（可选）
+  - 其他与 OpenAI 相关的可选参数同上
+
+示例：
+```bash
+curl -X POST http://localhost:8000/xhs/hotpost \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "topic": "夏日防晒霜推荐",
+    "audience": "学生党",
+    "style": "真实、种草"
+  }'
+```
+
+## 四、图片生成服务（Images）
+
+- 路径：`POST /images/generate`
+- 请求体：
+  - `prompt`（必填）
+  - `model`（可选，默认 `gpt-image-1` 或兼容）
+  - `size`（如 `1024x1024`）`quality`、`n` 等（可选）
+
+示例：
+```bash
+curl -X POST http://localhost:8000/images/generate \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "prompt": "A cute corgi playing skateboard, cartoon style",
+    "size": "512x512"
+  }'
+```
+
+注意：当前实现返回 URL 或 base64（取决于上游），SDK 不支持 Images API 时会报错提示。
+
+## 五、Flutter 客户端
+
+见 `flutter_client/lib/main.dart`，默认请求 `http://localhost:8000/chat`。可按需增加翻译、XHS、图片生成的调用逻辑。
