@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import List, Optional, Dict, Any
 
@@ -5,6 +6,15 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler()  # 输出到控制台
+    ]
+)
 
 # 读取 .env 环境变量（如存在）
 load_dotenv()
@@ -70,6 +80,17 @@ from app.routers.image_gen import router as image_router  # noqa: E402
 app.include_router(translation_router)
 app.include_router(xhs_router)
 app.include_router(image_router)
+
+# --- Direct endpoints for client compatibility ---
+from app.services.translation import TranslationRequest, TranslationResponse, translate  # noqa: E402
+
+@app.post("/translate", response_model=TranslationResponse)
+def translate_direct(req: TranslationRequest) -> TranslationResponse:
+    """Direct /translate endpoint for client compatibility"""
+    try:
+        return translate(req)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Translation error: {e}")
 
 
 @app.get("/healthz")

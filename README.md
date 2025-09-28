@@ -1,5 +1,24 @@
 # LLM_api Demo
 
+/root/LLM_api/
+├── app/                          # FastAPI 后端应用
+│   ├── main.py                   # 主应用入口，包含聊天接口
+│   ├── common/                   # 公共模块
+│   │   └── openai_client.py     # OpenAI 客户端封装
+│   ├── routers/                  # API 路由层
+│   │   ├── translation.py       # 翻译服务路由
+│   │   ├── xhs_hotpost.py       # 小红书爆款文案路由
+│   │   └── image_gen.py         # 图片生成路由
+│   └── services/                 # 业务逻辑层
+│       ├── translation.py       # 翻译服务实现
+│       ├── xhs_hotpost.py       # 小红书文案生成实现
+│       └── image_gen.py         # 图片生成实现
+├── flutter_client/               # Flutter 客户端
+│   ├── lib/main.dart            # Flutter 主应用
+│   └── pubspec.yaml             # Flutter 依赖配置
+├── requirements.txt             # Python 依赖
+└── README.md                    # 项目文档
+
 后端：FastAPI（Python）代理到 OpenAI。
 客户端：Flutter 示例。
 
