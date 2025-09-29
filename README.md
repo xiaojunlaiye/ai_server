@@ -49,7 +49,7 @@ cp .env.example .env
 
 ### 4) 运行服务
 ```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn app.main:app --host 0.0.0.0 --port 8888 --reload
 ```
 
 打开接口文档：http://localhost:8000/docs
@@ -77,7 +77,7 @@ curl -X POST http://localhost:8000/chat \
 
 示例：
 ```bash
-curl -X POST http://localhost:8000/translation/translate \
+curl -X POST http://localhost:8888/translation/translate \
   -H 'Content-Type: application/json' \
   -d '{
     "text": "今天天气不错，我们去公园散步吧。",
@@ -95,7 +95,7 @@ curl -X POST http://localhost:8000/translation/translate \
 
 示例：
 ```bash
-curl -X POST http://localhost:8000/xhs/hotpost \
+curl -X POST http://localhost:8888/xhs/hotpost \
   -H 'Content-Type: application/json' \
   -d '{
     "topic": "夏日防晒霜推荐",
@@ -114,7 +114,7 @@ curl -X POST http://localhost:8000/xhs/hotpost \
 
 示例：
 ```bash
-curl -X POST http://localhost:8000/images/generate \
+curl -X POST http://localhost:8888/images/generate \
   -H 'Content-Type: application/json' \
   -d '{
     "prompt": "A cute corgi playing skateboard, cartoon style",
@@ -126,4 +126,4 @@ curl -X POST http://localhost:8000/images/generate \
 
 ## 五、Flutter 客户端
 
-见 `flutter_client/lib/main.dart`，默认请求 `http://localhost:8000/chat`。可按需增加翻译、XHS、图片生成的调用逻辑。
+见 `flutter_client/lib/main.dart`，默认请求 `http://localhost:8888/chat`。可按需增加翻译、XHS、图片生成的调用逻辑。

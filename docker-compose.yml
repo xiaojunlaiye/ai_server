@@ -12,6 +12,8 @@ services:
     env_file:
       - .env
     restart: unless-stopped
+    volumes:
+      - ./logs:/app/logs
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8888/healthz"]
       interval: 30s

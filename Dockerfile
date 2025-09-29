@@ -23,7 +23,14 @@ COPY app/ ./app/
 
 # 创建非root用户
 RUN useradd --create-home --shell /bin/bash app && chown -R app:app /app
+
+# 创建日志目录
+RUN mkdir -p /app/logs && chown -R app:app /app/logs
+
 USER app
+
+# 创建日志文件
+RUN touch /app/logs/access.log
 
 # 暴露端口
 EXPOSE 8888

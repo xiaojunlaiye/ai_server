@@ -40,7 +40,19 @@ class TranslationResponse(BaseModel):
 
 
 def build_prompt(text: str, target_lang: str, source_lang: str | None, style: str | None, auto_detect: bool) -> str:
-    style_clause = f" Use the following style: {style}." if style else ""
+    # 处理 "all" 风格参数
+    if style and style.lower() == "all":
+        style_clause = (
+            " Please provide translations in two different styles:\n"
+            "1. 口语风格 (Colloquial style) - natural, conversational tone\n"
+            "2. 书面风格 (Formal style) - professional, written tone\n"
+            "Format your response as:\n"
+            "口语风格: [translation]\n"
+            "书面风格: [translation]"
+        )
+    else:
+        style_clause = f" Use the following style: {style}." if style else ""
+    
     if auto_detect or not source_lang:
         return (
             f"You are a professional translator. Detect the source language and translate to {target_lang}.{style_clause}\n"

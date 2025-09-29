@@ -1,4 +1,6 @@
 import logging
+import time
+from logging.handlers import RotatingFileHandler
 import os
 from typing import List, Optional, Dict, Any
 
@@ -12,9 +14,23 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.StreamHandler()  # 输出到控制台
+        logging.StreamHandler()
     ]
 )
+
+# 访问日志到文件（轮转）
+_access_logger = logging.getLogger("access")
+try:
+    import os
+    os.makedirs("/app/logs", exist_ok=True)
+    _file_handler = RotatingFileHandler("/app/logs/access.log", maxBytes=5 * 1024 * 1024, backupCount=3)
+    _file_handler.setFormatter(logging.Formatter('%(asctime)s - %(message)s'))
+    _access_logger.setLevel(logging.INFO)
+    _access_logger.addHandler(_file_handler)
+except Exception as _e:
+    logging.getLogger(__name__).warning(f"Failed to init file handler for access log: {_e}")
+    # 如果文件日志失败，至少记录到控制台
+    _access_logger.addHandler(logging.StreamHandler())
 
 # 读取 .env 环境变量（如存在）
 load_dotenv()
@@ -73,6 +89,25 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 简单请求访问日志中间件
+@app.middleware("http")
+async def access_log_middleware(request, call_next):
+    start = time.time()
+    response = None
+    try:
+        response = await call_next(request)
+        return response
+    finally:
+        try:
+            duration_ms = int((time.time() - start) * 1000)
+            client_host = request.client.host if request.client else "-"
+            method = request.method
+            path = request.url.path
+            status = getattr(response, "status_code", 0)
+            _access_logger.info(f"client={client_host} method={method} path={path} status={status} duration_ms={duration_ms}")
+        except Exception:
+            pass
 
 # --- Routers ---
 from app.routers.translation import router as translation_router  # noqa: E402
