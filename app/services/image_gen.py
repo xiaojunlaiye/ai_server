@@ -2,11 +2,12 @@ from typing import Dict, Any, Optional
 
 from pydantic import BaseModel
 
-from app.common.openai_client import create_openai_client
+from app.common.llm_client import get_default_client, get_client_by_provider
 
 
 class ImageGenRequest(BaseModel):
     prompt: str
+    provider: str | None = None  # "openai" 或 "tongyi"
     model: str | None = None  # 如 "gpt-image-1" 或兼容模型
     size: str | None = "1024x1024"
     quality: str | None = None  # 如 "high"
@@ -26,21 +27,40 @@ class ImageGenResponse(BaseModel):
 
 
 def generate_image(req: ImageGenRequest) -> ImageGenResponse:
-    client = create_openai_client()
-    model = req.model or "gpt-image-1"
+    # 获取LLM客户端
+    try:
+        if req.provider:
+            client = get_client_by_provider(req.provider)
+        else:
+            client = get_default_client()
+    except Exception as e:
+        raise ValueError(f"Failed to initialize LLM client: {e}")
 
-    # 兼容 openai.images.generate (新版SDK) 接口
-    if not hasattr(client, "images") or not hasattr(client.images, "generate"):
+    # 设置默认模型
+    if req.provider == "tongyi":
+        # 通义大模型目前主要支持文本生成，图片生成功能有限
+        raise ValueError("Tongyi models currently don't support image generation. Please use OpenAI provider.")
+    else:
+        model = req.model or "dall-e-3"
+
+    # 检查是否支持图片生成
+    if not hasattr(client.client, "images") or not hasattr(client.client.images, "generate"):
         raise RuntimeError("Images API not available in current SDK")
 
-    resp = client.images.generate(
-        model=model,
-        prompt=req.prompt,
-        size=req.size,
-        quality=req.quality,
-        n=req.n or 1,
-        **(req.extra or {}),
-    )
+    # 构建请求参数
+    kwargs = {
+        "model": model,
+        "prompt": req.prompt,
+        "size": req.size,
+        "n": req.n or 1,
+    }
+    if req.quality:
+        kwargs["quality"] = req.quality
+    if req.extra:
+        kwargs.update(req.extra)
+
+    # 调用图片生成API
+    resp = client.client.images.generate(**kwargs)
 
     images: list[ImageItem] = []
     data = getattr(resp, "data", None) or []

@@ -1,14 +1,15 @@
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from pydantic import BaseModel
 
-from app.common.openai_client import create_openai_client, has_responses_api
+from app.common.llm_client import get_default_client, get_client_by_provider
 
 
 class XHSRequest(BaseModel):
     topic: str
     audience: str | None = None
     style: str | None = None  # 如：真实、种草、专业、俏皮
+    provider: str | None = None  # "openai" 或 "tongyi"
     model: str | None = None
     temperature: float | None = 0.8
     max_tokens: int | None = None
@@ -38,35 +39,38 @@ PROMPT_TEMPLATE = (
 
 
 def generate_xhs(req: XHSRequest) -> XHSResponse:
-    client = create_openai_client()
-    default_model = req.model or "gpt-4o-mini"
+    # 获取LLM客户端
+    try:
+        if req.provider:
+            client = get_client_by_provider(req.provider)
+        else:
+            client = get_default_client()
+    except Exception as e:
+        raise ValueError(f"Failed to initialize LLM client: {e}")
+
+    # 设置默认模型
+    if req.provider == "tongyi":
+        default_model = req.model or "qwen-turbo"
+    else:
+        default_model = req.model or "gpt-4o-mini"
 
     audience = req.audience or "大众人群"
     style = req.style or "真实、种草"
     prompt = PROMPT_TEMPLATE.format(topic=req.topic, audience=audience, style=style)
 
-    if has_responses_api(client):
-        resp = client.responses.create(
-            model=default_model,
-            input=prompt,
-            temperature=req.temperature,
-            max_output_tokens=req.max_tokens,
-            **(req.extra or {}),
-        )
-        text = getattr(resp, "output_text", "") or ""
-    else:
-        messages = [
-            {"role": "system", "content": "你是一名资深的小红书爆款内容创作者。"},
-            {"role": "user", "content": prompt},
-        ]
-        cr = client.chat.completions.create(
-            model=default_model,
-            messages=messages,
-            temperature=req.temperature,
-            max_tokens=req.max_tokens,
-            **(req.extra or {}),
-        )
-        text = cr.choices[0].message.content if cr.choices else ""
+    # 构建请求参数
+    kwargs = {
+        "model": default_model,
+        "temperature": req.temperature,
+    }
+    if req.max_tokens:
+        kwargs["max_tokens"] = req.max_tokens
+    if req.extra:
+        kwargs.update(req.extra)
+
+    # 调用LLM API
+    response = client.text_completion(prompt, **kwargs)
+    text = response.get("text", "")
 
     # 解析成结构化输出，尽量稳健
     import json

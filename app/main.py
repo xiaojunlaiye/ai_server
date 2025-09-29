@@ -49,7 +49,9 @@ class ChatRequest(BaseModel):
     messages: List[ChatMessage]
     temperature: Optional[float] = 0.7
     max_tokens: Optional[int] = None
-    # 允许透传额外 OpenAI 兼容参数
+    # LLM 提供商选择
+    provider: Optional[str] = None  # "openai" 或 "tongyi"
+    # 允许透传额外参数
     extra: Dict[str, Any] = Field(default_factory=dict)
 
 class ChatResponseChoice(BaseModel):
@@ -100,71 +102,52 @@ async def healthz() -> Dict[str, str]:
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest) -> ChatResponse:
-    from openai import OpenAI
-
-    if not OPENAI_API_KEY:
-        raise HTTPException(status_code=500, detail="OPENAI_API_KEY is not set")
-
-    client_kwargs: Dict[str, Any] = {"api_key": OPENAI_API_KEY}
-    if OPENAI_BASE_URL:
-        client_kwargs["base_url"] = OPENAI_BASE_URL
-
-    client = OpenAI(**client_kwargs)
-
-    # 如果可用优先使用 Responses API，否则回退到 Chat Completions
-    use_responses_api = hasattr(client, "responses") and hasattr(client.responses, "create")
+    from app.common.llm_client import get_default_client, get_client_by_provider
 
     try:
-        if use_responses_api:
-            # 将 messages 简单串联为一个输入，适配 Responses API
-            prompt_segments: List[str] = [f"{m.role}: {m.content}" for m in req.messages]
-            prompt: str = "\n".join(prompt_segments) if prompt_segments else "Hello"
-
-            response = client.responses.create(
-                model=req.model,
-                input=prompt,
-                temperature=req.temperature,
-                max_output_tokens=req.max_tokens,
-                **(req.extra or {}),
-            )
-            text_output: str = getattr(response, "output_text", None) or ""
-
-            choice = ChatResponseChoice(
-                index=0,
-                message=ChatMessage(role="assistant", content=text_output),
-                finish_reason=None,
-            )
-
-            return ChatResponse(
-                id=getattr(response, "id", None),
-                choices=[choice],
-                model=getattr(response, "model", None),
-            )
+        # 获取LLM客户端
+        if req.provider:
+            client = get_client_by_provider(req.provider)
         else:
-            # 回退：使用 Chat Completions 兼容路径
-            response = client.chat.completions.create(
-                model=req.model,
-                messages=[m.model_dump() for m in req.messages],
-                temperature=req.temperature,
-                max_tokens=req.max_tokens,
-                **(req.extra or {}),
-            )
+            client = get_default_client()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to initialize LLM client: {e}")
 
-            choices: List[ChatResponseChoice] = []
-            for idx, choice in enumerate(response.choices):
-                cmsg = choice.message
-                choices.append(
-                    ChatResponseChoice(
-                        index=idx,
-                        message=ChatMessage(role=cmsg.role, content=cmsg.content or ""),
-                        finish_reason=getattr(choice, "finish_reason", None),
-                    )
-                )
+    # 设置默认模型
+    if req.provider == "tongyi":
+        default_model = req.model if req.model != "gpt-4o-mini" else "qwen-turbo"
+    else:
+        default_model = req.model
 
-            return ChatResponse(
-                id=getattr(response, "id", None),
-                choices=choices,
-                model=getattr(response, "model", None),
-            )
+    try:
+        # 构建请求参数
+        kwargs = {
+            "model": default_model,
+            "temperature": req.temperature,
+        }
+        if req.max_tokens:
+            kwargs["max_tokens"] = req.max_tokens
+        if req.extra:
+            kwargs.update(req.extra)
+
+        # 调用聊天完成API
+        response = client.chat_completion(
+            messages=[m.model_dump() for m in req.messages],
+            **kwargs
+        )
+
+        # 构建响应
+        choice = ChatResponseChoice(
+            index=0,
+            message=ChatMessage(role="assistant", content=response.get("text", "")),
+            finish_reason=None,
+        )
+
+        return ChatResponse(
+            id=response.get("id"),
+            choices=[choice],
+            model=response.get("model"),
+        )
+
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Upstream error: {e}")

@@ -1,9 +1,9 @@
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from pydantic import BaseModel, Field
 
-from app.common.openai_client import create_openai_client, has_responses_api
+from app.common.llm_client import get_default_client, get_client_by_provider, LLMProvider
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,9 @@ class TranslationRequest(BaseModel):
     style: str | None = None
     # 是否自动识别源语言
     auto_detect: bool = True
-    # OpenAI 相关可选参数
+    # LLM 提供商选择
+    provider: str | None = None  # "openai" 或 "tongyi"
+    # 模型相关参数
     model: str | None = None
     temperature: float | None = 0.2
     max_tokens: int | None = None
@@ -34,6 +36,7 @@ class TranslationResponse(BaseModel):
     translated_text: str
     model: str | None = None
     id: str | None = None
+    provider: str | None = None
 
 
 def build_prompt(text: str, target_lang: str, source_lang: str | None, style: str | None, auto_detect: bool) -> str:
@@ -53,10 +56,41 @@ def build_prompt(text: str, target_lang: str, source_lang: str | None, style: st
 
 
 def translate(req: TranslationRequest) -> TranslationResponse:
-    client = create_openai_client()
-    default_model = req.model or "gpt-4o-mini"
+    # 获取LLM客户端
+    try:
+        if req.provider:
+            client = get_client_by_provider(req.provider)
+            provider_name = req.provider
+        else:
+            client = get_default_client()
+            # 根据可用的API密钥判断默认提供商
+            import os
+            if os.getenv("TONGYI_API_KEY"):
+                provider_name = "tongyi"
+            else:
+                provider_name = "openai"
+    except Exception as e:
+        logger.error(f"Failed to create LLM client: {e}")
+        raise ValueError(f"Failed to initialize LLM client: {e}")
 
-    if has_responses_api(client):
+    # 设置默认模型
+    if provider_name == "tongyi":
+        default_model = req.model or "qwen-turbo"
+    else:
+        default_model = req.model or "gpt-4o-mini"
+
+    # 构建请求参数
+    kwargs = {
+        "model": default_model,
+        "temperature": req.temperature,
+    }
+    if req.max_tokens:
+        kwargs["max_tokens"] = req.max_tokens
+    if req.extra:
+        kwargs.update(req.extra)
+
+    try:
+        # 构建提示词
         prompt = build_prompt(
             text=req.text,
             target_lang=req.target_lang,
@@ -65,56 +99,31 @@ def translate(req: TranslationRequest) -> TranslationResponse:
             auto_detect=req.auto_detect,
         )
         
-        # 打印发送给OpenAI的内容
-        logger.info(f"=== OpenAI API Request (Responses API) ===")
+        # 记录请求信息
+        logger.info(f"=== {provider_name.upper()} API Request ===")
+        logger.info(f"Provider: {provider_name}")
         logger.info(f"Model: {default_model}")
         logger.info(f"Prompt: {prompt}")
         logger.info(f"Temperature: {req.temperature}")
         logger.info(f"Max tokens: {req.max_tokens}")
         logger.info(f"Extra params: {req.extra}")
         
-        resp = client.responses.create(
-            model=default_model,
-            input=prompt,
-            temperature=req.temperature,
-            max_output_tokens=req.max_tokens,
-            **(req.extra or {}),
-        )
-        text = getattr(resp, "output_text", "") or ""
-        logger.info(f"=== OpenAI API Response ===")
-        logger.info(f"Translated text: {text}")
-        return TranslationResponse(translated_text=text, model=getattr(resp, "model", None), id=getattr(resp, "id", None))
-    else:
-        messages: List[Dict[str, str]] = [
-            {"role": "system", "content": "You are a professional translator."},
-            {
-                "role": "user",
-                "content": build_prompt(
-                    text=req.text,
-                    target_lang=req.target_lang,
-                    source_lang=None if req.auto_detect else req.source_lang,
-                    style=req.style,
-                    auto_detect=req.auto_detect,
-                ),
-            },
-        ]
+        # 调用LLM API
+        response = client.text_completion(prompt, **kwargs)
         
-        # 打印发送给OpenAI的内容
-        logger.info(f"=== OpenAI API Request (Chat Completions) ===")
-        logger.info(f"Model: {default_model}")
-        logger.info(f"Messages: {messages}")
-        logger.info(f"Temperature: {req.temperature}")
-        logger.info(f"Max tokens: {req.max_tokens}")
-        logger.info(f"Extra params: {req.extra}")
+        # 记录响应信息
+        logger.info(f"=== {provider_name.upper()} API Response ===")
+        logger.info(f"Translated text: {response.get('text', '')}")
+        logger.info(f"Model: {response.get('model', '')}")
+        logger.info(f"ID: {response.get('id', '')}")
         
-        resp = client.chat.completions.create(
-            model=default_model,
-            messages=messages,
-            temperature=req.temperature,
-            max_tokens=req.max_tokens,
-            **(req.extra or {}),
+        return TranslationResponse(
+            translated_text=response.get("text", ""),
+            model=response.get("model"),
+            id=response.get("id"),
+            provider=provider_name
         )
-        first = resp.choices[0].message.content if resp.choices else ""
-        logger.info(f"=== OpenAI API Response ===")
-        logger.info(f"Translated text: {first}")
-        return TranslationResponse(translated_text=first or "", model=getattr(resp, "model", None), id=getattr(resp, "id", None))
+        
+    except Exception as e:
+        logger.error(f"{provider_name.upper()} API error: {e}")
+        raise ValueError(f"Translation error: {e}")
