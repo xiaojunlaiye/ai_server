@@ -9,6 +9,7 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
+      - TONGYI_API_KEY=${TONGYI_API_KEY}
     env_file:
       - .env
     restart: unless-stopped

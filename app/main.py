@@ -113,10 +113,12 @@ async def access_log_middleware(request, call_next):
 from app.routers.translation import router as translation_router  # noqa: E402
 from app.routers.xhs_hotpost import router as xhs_router  # noqa: E402
 from app.routers.image_gen import router as image_router  # noqa: E402
+from app.routers.speech_to_text import router as speech_router  # noqa: E402
 
 app.include_router(translation_router)
 app.include_router(xhs_router)
 app.include_router(image_router)
+app.include_router(speech_router)
 
 # --- Direct endpoints for client compatibility ---
 from app.services.translation import TranslationRequest, TranslationResponse, translate  # noqa: E402
